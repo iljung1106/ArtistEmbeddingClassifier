@@ -16,6 +16,9 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
+# Gradio
+.gradio/
+
 # OS/editor
 .DS_Store
 Thumbs.db
