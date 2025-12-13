@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environments
+.venv/
+venv/
+env/
+.conda/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large artifacts / datasets
+dataset/
+dataset_face/
+dataset_eyes/
+checkpoints_style/
+
+# Model weights
+*.pt
+
+# Logs
+*.log
+
+
