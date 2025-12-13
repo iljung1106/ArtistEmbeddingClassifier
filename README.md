@@ -104,4 +104,8 @@ If your environment blocks localhost access (common with some proxy/security set
 python webui_gradio.py --share
 ```
 
+### Pretrained model (Hugging Face)
+
+- **Model page**: [ij/ArtistEmbedder](https://huggingface.co/ij/ArtistEmbedder) (GPL-3.0)
+
 
