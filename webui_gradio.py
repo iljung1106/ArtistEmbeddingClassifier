@@ -1,17 +1,143 @@
 from __future__ import annotations
 
+import argparse
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import gradio as gr
 import numpy as np
 import torch
 from PIL import Image
 
+def _patch_fastapi_starlette_middleware_unpack() -> None:
+    """
+    Work around FastAPI/Starlette version mismatches where Starlette's Middleware
+    iterates as (cls, args, kwargs) but FastAPI expects (cls, options).
+
+    The user reported: ValueError: too many values to unpack (expected 2)
+    in fastapi.applications.FastAPI.build_middleware_stack.
+    """
+    try:
+        import fastapi.applications as fa
+        from starlette.middleware import Middleware as StarletteMiddleware
+    except Exception:
+        return
+
+    # Idempotent: don't patch multiple times.
+    if getattr(fa.FastAPI.build_middleware_stack, "_aec_patched", False):
+        return
+
+    orig = fa.FastAPI.build_middleware_stack
+
+    def patched_build_middleware_stack(self):  # noqa: ANN001
+        # Mostly copied from FastAPI, but with robust handling of Middleware objects.
+        debug = self.debug
+        error_handler = None
+        exception_handlers = {}
+        if self.exception_handlers:
+            exception_handlers = self.exception_handlers
+            error_handler = exception_handlers.get(500) or exception_handlers.get(Exception)
+
+        from starlette.middleware.errors import ServerErrorMiddleware
+        from starlette.middleware.exceptions import ExceptionMiddleware
+        from fastapi.middleware.asyncexitstack import AsyncExitStackMiddleware
+
+        middleware = (
+            [StarletteMiddleware(ServerErrorMiddleware, handler=error_handler, debug=debug)]
+            + self.user_middleware
+            + [
+                StarletteMiddleware(ExceptionMiddleware, handlers=exception_handlers, debug=debug),
+                StarletteMiddleware(AsyncExitStackMiddleware),
+            ]
+        )
+
+        app = self.router
+        for m in reversed(middleware):
+            # Starlette Middleware object
+            if hasattr(m, "cls") and hasattr(m, "args") and hasattr(m, "kwargs"):
+                app = m.cls(app=app, *list(m.args), **dict(m.kwargs))
+                continue
+
+            # Old-style tuple/list
+            if isinstance(m, (tuple, list)):
+                if len(m) == 2:
+                    cls, options = m
+                    app = cls(app=app, **options)
+                    continue
+                if len(m) == 3:
+                    cls, args, kwargs = m
+                    app = cls(app=app, *list(args), **dict(kwargs))
+                    continue
+
+            # Fallback to original behavior for unexpected types
+            return orig(self)
+
+        return app
+
+    patched_build_middleware_stack._aec_patched = True  # type: ignore[attr-defined]
+    fa.FastAPI.build_middleware_stack = patched_build_middleware_stack
+
+
+_patch_fastapi_starlette_middleware_unpack()
+
+import gradio as gr
+
+def _patch_gradio_client_bool_jsonschema() -> None:
+    """
+    Work around gradio_client JSON-schema parsing bug where it assumes schema is a dict,
+    but JSON Schema allows booleans for additionalProperties (true/false).
+
+    Error seen:
+      TypeError: argument of type 'bool' is not iterable
+      in gradio_client/utils.py:get_type -> if "const" in schema:
+    """
+    try:
+        import gradio_client.utils as gcu
+    except Exception:
+        return
+
+    # Idempotent: patch once.
+    if getattr(getattr(gcu, "get_type", None), "_aec_patched", False):
+        return
+
+    orig_get_type = gcu.get_type
+
+    def patched_get_type(schema):  # noqa: ANN001
+        if isinstance(schema, bool):
+            # additionalProperties: false/true
+            return "object"
+        if schema is None:
+            return "object"
+        if not isinstance(schema, dict):
+            return "object"
+        return orig_get_type(schema)
+
+    patched_get_type._aec_patched = True  # type: ignore[attr-defined]
+    gcu.get_type = patched_get_type
+
+    # Also patch the deeper helper that assumes schema is always a dict.
+    orig_inner = getattr(gcu, "_json_schema_to_python_type", None)
+    if callable(orig_inner) and not getattr(orig_inner, "_aec_patched", False):
+        def patched_inner(schema, defs=None):  # noqa: ANN001
+            # JSON Schema allows boolean schemas: https://json-schema.org/
+            if isinstance(schema, bool):
+                return "typing.Any"
+            if schema is None:
+                return "typing.Any"
+            if not isinstance(schema, dict):
+                return "typing.Any"
+            return orig_inner(schema, defs)
+
+        patched_inner._aec_patched = True  # type: ignore[attr-defined]
+        gcu._json_schema_to_python_type = patched_inner
+
+
+_patch_gradio_client_bool_jsonschema()
+
 from app.model_io import LoadedModel, embed_triview, load_style_model
-from app.proto_db import PrototypeDB, load_prototype_db, topk_predictions
+from app.proto_db import PrototypeDB, load_prototype_db, topk_predictions_unique_labels
+from app.view_extractor import AnimeFaceEyeExtractor, ExtractorCfg
 
 
 ROOT = Path(__file__).resolve().parent
@@ -46,7 +172,11 @@ def _guess_default_ckpt(files: List[str]) -> Optional[str]:
 
 
 def _guess_default_proto(files: List[str]) -> Optional[str]:
-    # try to prefer a file with "prototype" in name
+    # Prefer the strict 90/10 prototype DB if present.
+    for f in files:
+        if Path(f).name.lower() == "per_artist_prototypes_90_10_full.pt":
+            return f
+    # Otherwise, try to prefer a file with "proto" in name
     for f in files:
         if "proto" in Path(f).name.lower():
             return f
@@ -64,6 +194,7 @@ class State:
     ckpt_path: Optional[str] = None
     db: Optional[PrototypeDB] = None
     proto_path: Optional[str] = None
+    extractor: Optional[AnimeFaceEyeExtractor] = None
 
 
 APP_STATE = State()
@@ -87,20 +218,36 @@ def load_all(ckpt_path: str, proto_path: str, device: str) -> str:
     APP_STATE.ckpt_path = ckpt_path
     APP_STATE.db = db
     APP_STATE.proto_path = proto_path
+
+    # initialize view extractor (whole -> face/eyes) with defaults
+    try:
+        cfg = ExtractorCfg(
+            yolo_dir=ROOT / "yolov5_anime",
+            weights=ROOT / "yolov5x_anime.pt",
+            cascade=ROOT / "anime-eyes-cascade.xml",
+            yolo_device=("0" if torch.cuda.is_available() else "cpu"),
+        )
+        APP_STATE.extractor = AnimeFaceEyeExtractor(cfg)
+    except Exception:
+        APP_STATE.extractor = None
+
     return f"✅ Loaded checkpoint `{Path(ckpt_path).name}` (stage={lm.stage_i}) and proto DB `{Path(proto_path).name}` (N={db.centers.shape[0]})"
 
 
 def classify(
     whole_img,
-    face_img,
-    eyes_img,
     topk: int,
-) -> Tuple[str, List[List[object]]]:
+):
+    """
+    Classify using auto-extracted face/eyes from whole image.
+    Returns: status, table_rows, face_preview, eyes_preview
+    """
     if APP_STATE.lm is None or APP_STATE.db is None:
-        return "❌ Click **Load** first.", []
+        return "❌ Click **Load** first.", [], None, None
 
     lm = APP_STATE.lm
     db = APP_STATE.db
+    ex = APP_STATE.extractor
 
     def _to_pil(x):
         if x is None:
@@ -110,20 +257,30 @@ def classify(
         return Image.fromarray(x)
 
     w = _to_pil(whole_img)
-    f = _to_pil(face_img)
-    e = _to_pil(eyes_img)
+    if w is None:
+        return "❌ Provide a whole image.", [], None, None
 
     try:
-        wt = _pil_to_tensor(w, lm.T_w) if w is not None else None
-        ft = _pil_to_tensor(f, lm.T_f) if f is not None else None
-        et = _pil_to_tensor(e, lm.T_e) if e is not None else None
+        face_pil = None
+        eyes_pil = None
+        if ex is not None:
+            rgb = np.array(w.convert("RGB"))
+            face_rgb, eyes_rgb = ex.extract(rgb)
+            if face_rgb is not None:
+                face_pil = Image.fromarray(face_rgb)
+            if eyes_rgb is not None:
+                eyes_pil = Image.fromarray(eyes_rgb)
+
+        wt = _pil_to_tensor(w, lm.T_w)
+        ft = _pil_to_tensor(face_pil, lm.T_f) if face_pil is not None else None
+        et = _pil_to_tensor(eyes_pil, lm.T_e) if eyes_pil is not None else None
         z = embed_triview(lm, whole=wt, face=ft, eyes=et)
-        preds = topk_predictions(db, z, topk=int(topk))
+        preds = topk_predictions_unique_labels(db, z, topk=int(topk))
     except Exception as ex:
-        return f"❌ Inference failed: {ex}", []
+        return f"❌ Inference failed: {ex}", [], None, None
 
     rows = [[name, float(score)] for (name, score) in preds]
-    return "✅ OK", rows
+    return "✅ OK", rows, (face_pil if "face_pil" in locals() else None), (eyes_pil if "eyes_pil" in locals() else None)
 
 
 def add_prototype(
@@ -135,6 +292,7 @@ def add_prototype(
         return "❌ Click **Load** first."
     lm = APP_STATE.lm
     db = APP_STATE.db
+    ex = APP_STATE.extractor
 
     label_name = (label_name or "").strip()
     if not label_name:
@@ -146,8 +304,20 @@ def add_prototype(
     for x in images:
         try:
             im = x if isinstance(x, Image.Image) else Image.fromarray(x)
+            face_pil = None
+            eyes_pil = None
+            if ex is not None:
+                rgb = np.array(im.convert("RGB"))
+                face_rgb, eyes_rgb = ex.extract(rgb)
+                if face_rgb is not None:
+                    face_pil = Image.fromarray(face_rgb)
+                if eyes_rgb is not None:
+                    eyes_pil = Image.fromarray(eyes_rgb)
+
             wt = _pil_to_tensor(im, lm.T_w)
-            z = embed_triview(lm, whole=wt, face=None, eyes=None)
+            ft = _pil_to_tensor(face_pil, lm.T_f) if face_pil is not None else None
+            et = _pil_to_tensor(eyes_pil, lm.T_e) if eyes_pil is not None else None
+            z = embed_triview(lm, whole=wt, face=ft, eyes=et)
             zs.append(z)
         except Exception:
             continue
@@ -199,15 +369,15 @@ def build_ui() -> gr.Blocks:
         with gr.Tab("Classify"):
             with gr.Row():
                 whole = gr.Image(label="Whole image (required)", type="pil")
-                face = gr.Image(label="Face (optional)", type="pil")
-                eyes = gr.Image(label="Eyes (optional)", type="pil")
+                face_prev = gr.Image(label="Extracted face (auto)", type="pil")
+                eyes_prev = gr.Image(label="Extracted eyes (auto)", type="pil")
             with gr.Row():
                 topk = gr.Slider(1, 20, value=5, step=1, label="Top-K")
                 run_btn = gr.Button("Run", variant="primary")
 
             out_status = gr.Markdown("")
             table = gr.Dataframe(headers=["label", "cosine_sim"], datatype=["str", "number"], interactive=False)
-            run_btn.click(classify, inputs=[whole, face, eyes, topk], outputs=[out_status, table])
+            run_btn.click(classify, inputs=[whole, topk], outputs=[out_status, table, face_prev, eyes_prev])
 
         with gr.Tab("Add prototype"):
             gr.Markdown(
@@ -247,6 +417,24 @@ def build_ui() -> gr.Blocks:
 if __name__ == "__main__":
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     demo = build_ui()
-    demo.launch(server_name="127.0.0.1", server_port=7860, show_api=False)
+
+    ap = argparse.ArgumentParser(description="ArtistEmbeddingClassifier Gradio UI")
+    ap.add_argument("--host", type=str, default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=7860)
+    ap.add_argument("--share", action="store_true", help="Create a public share link")
+    args = ap.parse_args()
+
+    # Re-apply patch right before launching (in case import order changed).
+    _patch_fastapi_starlette_middleware_unpack()
+
+    try:
+        demo.launch(server_name=args.host, server_port=args.port, show_api=False, share=args.share)
+    except ValueError as e:
+        # Some environments block localhost checks; fall back to share link.
+        msg = str(e)
+        if "localhost is not accessible" in msg and not args.share:
+            demo.launch(server_name=args.host, server_port=args.port, show_api=False, share=True)
+        else:
+            raise
 
 

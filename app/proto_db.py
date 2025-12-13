@@ -117,3 +117,35 @@ def topk_predictions(
     return out
 
 
+def topk_predictions_unique_labels(
+    db: PrototypeDB,
+    z: torch.Tensor,
+    *,
+    topk: int = 5,
+) -> List[Tuple[str, float]]:
+    """
+    Like topk_predictions(), but dedupes by label:
+    if a label has multiple prototypes, only the highest score is kept.
+    """
+    if z.ndim != 1:
+        raise ValueError("z must be 1D.")
+    Z = torch.nn.functional.normalize(z.float(), dim=0).view(1, -1)
+    C = torch.nn.functional.normalize(db.centers.float(), dim=1)
+    sim = (Z @ C.t()).squeeze(0)  # [N]
+    if sim.numel() == 0:
+        return []
+
+    best_by_label: dict[int, float] = {}
+    # iterate all prototypes once; keep max per label id
+    for i in range(sim.numel()):
+        lid = int(db.labels[i].item())
+        s = float(sim[i].item())
+        prev = best_by_label.get(lid)
+        if prev is None or s > prev:
+            best_by_label[lid] = s
+
+    items = sorted(best_by_label.items(), key=lambda kv: kv[1], reverse=True)
+    items = items[: max(1, int(topk))]
+    return [(db.id_to_name(lid), float(score)) for (lid, score) in items]
+
+

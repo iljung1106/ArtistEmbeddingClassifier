@@ -1,7 +1,8 @@
 -r yolov5_anime/requirements.txt
 
 # Keep NumPy < 2 for compatibility with many prebuilt torch/torchvision wheels.
-numpy<2
+# Also keep it new enough for common scientific stack expectations.
+numpy>=1.25.2,<2
 
 # Crawler (async + selenium)
 aiohttp>=3.9
@@ -14,6 +15,7 @@ webdriver-manager>=4.0
 scikit-learn>=1.3
 
 # Web UI
-gradio>=4.0
+gradio>=4.29.0
+gradio_client>=0.16.1
 
 

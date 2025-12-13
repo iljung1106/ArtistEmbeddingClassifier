@@ -18,8 +18,19 @@ import torch
 import torch.nn as nn
 import torchvision
 import yaml
-from scipy.cluster.vq import kmeans
-from scipy.signal import butter, filtfilt
+
+# SciPy is optional for inference. Some helper functions (e.g. kmeans anchors, signal filtering)
+# use SciPy, but face detection + NMS do not. On some environments SciPy may be installed but
+# incompatible with the installed NumPy (e.g. missing `numpy.exceptions`), so we guard imports.
+_SCIPY_IMPORT_ERROR = None
+try:
+    from scipy.cluster.vq import kmeans  # type: ignore
+    from scipy.signal import butter, filtfilt  # type: ignore
+except Exception as _e:  # noqa: BLE001
+    kmeans = None
+    butter = None
+    filtfilt = None
+    _SCIPY_IMPORT_ERROR = str(_e)
 from tqdm import tqdm
 
 from utils.torch_utils import init_seeds, is_parallel
@@ -758,6 +769,11 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
         Usage:
             from utils.utils import *; _ = kmean_anchors()
     """
+    if kmeans is None:
+        raise ImportError(
+            "SciPy is required for kmean_anchors(), but SciPy could not be imported in this environment. "
+            f"Original error: {_SCIPY_IMPORT_ERROR}"
+        )
     thr = 1. / thr
 
     def metric(k, wh):  # compute metrics
@@ -954,6 +970,11 @@ def hist2d(x, y, n=100):
 
 
 def butter_lowpass_filtfilt(data, cutoff=1500, fs=50000, order=5):
+    if butter is None or filtfilt is None:
+        raise ImportError(
+            "SciPy is required for butter_lowpass_filtfilt(), but SciPy could not be imported in this environment. "
+            f"Original error: {_SCIPY_IMPORT_ERROR}"
+        )
     # https://stackoverflow.com/questions/28536191/how-to-filter-smooth-with-scipy-numpy
     def butter_lowpass(cutoff, fs, order):
         nyq = 0.5 * fs

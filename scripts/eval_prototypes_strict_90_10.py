@@ -211,6 +211,10 @@ def main() -> None:
     train_ds = ts.TriViewDataset(ts.cfg.data_root, ts.cfg.folders, split="train", T_whole=T_w_val, T_face=T_f_val, T_eyes=T_e_val)
     val_ds = ts.TriViewDataset(ts.cfg.data_root, ts.cfg.folders, split="val", T_whole=T_w_val, T_face=T_f_val, T_eyes=T_e_val)
 
+    # Persist artist names (label -> folder name) for downstream UX (e.g., Gradio UI)
+    # IDs are assigned by sorting artist directory names under dataset/.
+    label_names = [train_ds.id2artist[i] for i in range(train_ds.num_classes)]
+
     # merge pools (train+val)
     wholes_all = merge_dicts(train_ds.whole_paths_by_artist, val_ds.whole_paths_by_artist)
     faces_all = merge_dicts(train_ds.face_paths_by_artist, val_ds.face_paths_by_artist)
@@ -340,6 +344,7 @@ def main() -> None:
         dict(
             centers=proto_centers,
             labels=proto_labels,
+            label_names=label_names,
             k_per_artist=a.k_per_artist,
             ckpt=a.ckpt,
             split_method="90_10_strict_per_view_per_artist",

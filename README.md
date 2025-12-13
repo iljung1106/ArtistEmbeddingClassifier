@@ -98,4 +98,10 @@ The UI loads checkpoints and prototype databases from `./checkpoints_style/` and
 - classify an uploaded image
 - add new prototypes and save back to the prototype DB `.pt`
 
+If your environment blocks localhost access (common with some proxy/security setups), run:
+
+```bash
+python webui_gradio.py --share
+```
+
 
