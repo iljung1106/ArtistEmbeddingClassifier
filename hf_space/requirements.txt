@@ -1,0 +1,12 @@
+pillow
+pyyaml
+tqdm
+
+# OpenCV for face/eye extraction (headless build for Spaces)
+opencv-python-headless
+
+# torchvision is NOT in the base image; model code imports it
+torchvision
+
+# matplotlib for Grad-CAM colormaps
+matplotlib

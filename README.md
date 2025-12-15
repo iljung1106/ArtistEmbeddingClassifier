@@ -1,6 +1,6 @@
 ### ArtistEmbeddingClassifier
 
-Train an **artist embedding model** from anime images (whole / face / eyes), and evaluate using **per-artist prototypes**.
+Train an **artist embedding model** from anime images (whole / face / eye), and evaluate using **per-artist prototypes**.
 
 This repo includes:
 
@@ -13,9 +13,10 @@ See `THIRD_PARTY_NOTICES.md` for attribution details.
 
 - **Raw dataset (whole images)**: `dataset/<artist_name>/*`
 - **Extracted faces**: `dataset_face/<artist_name>/*`
-- **Extracted eyes**: `dataset_eyes/<artist_name>/*`
+- **Extracted eye crops**: `dataset_eyes/<artist_name>/*`
 - **Training**: `train_style_ddp.py` (DDP)
 - **Convenience entrypoints**: `scripts/*.py`
+- **Gradio app**: `webui_gradio.py`
 
 ### Setup
 
@@ -55,7 +56,7 @@ Environment variables (recommended):
 - `GELBOORU_API_KEY`
 - `GELBOORU_USER_ID`
 
-### 2) Extract faces + eyes
+### 2) Extract faces + eye
 
 Given `dataset/` (whole images), produce `dataset_face/` and `dataset_eyes/`:
 
@@ -95,13 +96,41 @@ python webui_gradio.py
 ```
 
 The UI loads checkpoints and prototype databases from `./checkpoints_style/` and lets you:
-- classify an uploaded image
-- add new prototypes and save back to the prototype DB `.pt`
+- **Classify** an uploaded image (artist shown once; best similarity if multiple prototypes exist)
+- **XGrad-CAM** visualization for each view (whole / face / eye)
+- **View contribution** bars (how much each view contributed)
+- **Artists (in DB)** tab showing which labels exist and how many prototypes each has
+- **Add prototype (temporary)**: creates *session-only* prototypes via random (whole, face, eye) triplets + K-means
+  - Temporary prototypes are **not persisted** to disk on Spaces and will be lost on restart/idle.
+
+Prototype DB selection:
+- The **default** prototype DB is `per_artist_prototypes_90_10_full.pt` (if present)
+- The dropdown shows **all** `*.pt` files under `./checkpoints_style/` (excluding obvious training checkpoints like `stage*_epoch*.pt`)
 
 If your environment blocks localhost access (common with some proxy/security setups), run:
 
 ```bash
 python webui_gradio.py --share
+```
+
+### Deploy to Hugging Face Spaces (Gradio)
+
+This repo includes a bundler that prepares a Space-ready folder:
+
+```bash
+python scripts/make_hf_space_bundle.py --out hf_space
+```
+
+Then push the **contents** of `hf_space/` to your Space repo (not the folder itself). Large `.pt` files must be pushed with **Git LFS**:
+
+```bash
+git lfs install
+git lfs track "*.pt"
+git add .gitattributes
+git commit -m "Track .pt with Git LFS"
+git add -A
+git commit -m "Update Space bundle"
+git push
 ```
 
 ### Pretrained model (Hugging Face)
