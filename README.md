@@ -9,6 +9,10 @@ This repo includes:
 
 See `THIRD_PARTY_NOTICES.md` for attribution details.
 
+### Hugging Face Space demo
+
+- **Space**: [ij/ArtistEmbeddingClassifier](https://huggingface.co/spaces/ij/ArtistEmbeddingClassifier)
+
 ### Project layout
 
 - **Raw dataset (whole images)**: `dataset/<artist_name>/*`
