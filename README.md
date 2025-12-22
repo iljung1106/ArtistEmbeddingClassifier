@@ -15,7 +15,8 @@ See `THIRD_PARTY_NOTICES.md` for attribution details.
 
 ### Video
 
-- **Test video**: [`video.mp4`](video.mp4)
+- **Test video**: 
+https://github.com/user-attachments/assets/74c822e6-8e09-41c4-b0b3-08c767caebf9
 
 ### Project layout
 
