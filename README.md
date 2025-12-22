@@ -13,6 +13,10 @@ See `THIRD_PARTY_NOTICES.md` for attribution details.
 
 - **Space**: [ij/ArtistEmbeddingClassifier](https://huggingface.co/spaces/ij/ArtistEmbeddingClassifier)
 
+### Video
+
+- **YouTube**: [Walkthrough](https://youtu.be/oUyMKs4_nYs?si=6VnLuxZPSUpPli-F)
+
 ### Project layout
 
 - **Raw dataset (whole images)**: `dataset/<artist_name>/*`
