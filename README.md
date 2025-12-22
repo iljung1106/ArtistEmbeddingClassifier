@@ -15,7 +15,7 @@ See `THIRD_PARTY_NOTICES.md` for attribution details.
 
 ### Video
 
-- **YouTube**: [Walkthrough](https://youtu.be/oUyMKs4_nYs?si=6VnLuxZPSUpPli-F)
+- [![Walkthrough](https://img.youtube.com/vi/CMWY0sVNcbE/0.jpg)](https://www.youtube.com/watch?v=CMWY0sVNcbE)
 
 ### Project layout
 
