@@ -15,7 +15,7 @@ See `THIRD_PARTY_NOTICES.md` for attribution details.
 
 ### Video
 
-- [![Walkthrough](https://img.youtube.com/vi/CMWY0sVNcbE/0.jpg)](https://www.youtube.com/watch?v=CMWY0sVNcbE)
+- **Test video**: [`video.mp4`](video.mp4)
 
 ### Project layout
 
