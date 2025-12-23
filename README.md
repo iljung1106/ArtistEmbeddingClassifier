@@ -12,6 +12,10 @@ Train an **artist embedding model** from anime images (whole / face / eye), and 
 
 입력 이미지에 대해 유사 작가와 그 유사도를 제시하고, 필요한 작가를 추가하는 기능을 성공적으로 구현하였다. 이를 통해 사용자가 AI 생성 이미지의 화풍 유사도를 사전에 진단하여 의도치 않은 분쟁을 예방하고 창작의 투명성을 높일 수 있다. 또, 기존 전문가의 직관에 의존하던 화풍 판단을 객관적 데이터로 전환하여 논란의 여지를 최소화하며, 나아가 추상적인 예술적 개념을 넘어 데이터 관점에서 화풍을 새롭게 정의하는 기준을 제시하고자 한다.
 
+### 구현내용
+
+얼굴, 눈, 전체 뷰를 가져오기 위해 yolo모델을 사용했다. 이렇게 3개의 뷰를 만들어 각각의 뷰에 대해서 GramDead, CovlSqrtHead, SpectrumHead, StatsHead이렇게 4개의 헤드로 선, 질감, 색, 구도 feature를 잡는다. branch_gate로 이미지당 더 중요한 feature를 선정해서 softmax로 가중치를 더해준다. 이렇게 만들어진 각 3개의 뷰에 대한 embedding을 작가별로 인당 100개씩 샘플링을 해 특정 작가의 스타일 embedding분포를 만든다. 이 분포에 대해 K=4인 K-Means을 통해 한 작가당 4개의 대표 스타일 임베딩을 구현한다. 이렇게 만들어진 여러 작가들의 임베딩 metrix를 기준으로 한 이미지를 입력하면, 해당 이미지의 embedding vector를 뽑아 가장 가까운 작가의 스타일 임베딩을 보여주는 방식으로 유사한 화풍을 찾는다.
+
 This repo includes:
 
 - **Face detection**: `yolov5_anime/` (GPL-3.0) from [zymk9/yolov5_anime](https://github.com/zymk9/yolov5_anime)
